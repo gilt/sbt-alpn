@@ -9,12 +9,12 @@ import com.typesafe.sbt.packager.archetypes.JavaAppPackaging.autoImport.bashScri
 
 object JettyAlpn extends AutoPlugin {
   object autoImport {
-    val alpnDownloadBootVersion = settingKey[Option[String]]("ALPN api version")
+    val alpnDownloadBootVersion = settingKey[Option[String]]("ALPN boot version")
+    val alpnDownloadBootAutoVersion = settingKey[String]("ALPN auto generated boot version")
     val alpnApiIncluded = settingKey[Boolean]("Include ALPN api as a dependency")
     val alpnApiVersion = settingKey[String]("ALPN api version")
     val alpnAgentVersion = settingKey[String]("ALPN boot version")
     val alpnAgent = taskKey[File]("ALPN agent jar location")
-    val alpnDownloadBoot = taskKey[Option[File]]("ALPN agent jar location")
   }
 
   import autoImport._
@@ -27,46 +27,58 @@ object JettyAlpn extends AutoPlugin {
   override lazy val projectSettings = Seq(
     ivyConfigurations ++= Seq(alpnAgentConfig, alpnBootConfig),
     alpnApiIncluded := false,
-    alpnDownloadBootVersion := Some("8.1.8.v20160420"),
+    alpnDownloadBootVersion := None,
+    alpnDownloadBootAutoVersion := alpnDownloadBootVersion.value.getOrElse(findArtifactVersion(AlpnMappings)),
     alpnApiVersion := "1.1.2.v20150522",
     alpnAgentVersion := "2.0.2",
     alpnAgent := findAlpnAgent(update.value),
-    alpnDownloadBoot := findAlpnBoot(update.value),
     libraryDependencies ++= {
-      val agentAndApi = if(alpnApiIncluded.value) {
+      if(alpnApiIncluded.value) {
         Seq(
           "org.eclipse.jetty.alpn" % "alpn-api" % alpnApiVersion.value,
+          "org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value,
           "org.mortbay.jetty.alpn" % "jetty-alpn-agent" % alpnAgentVersion.value % alpnAgentConfig
         )
       } else {
-        Seq("org.mortbay.jetty.alpn" % "jetty-alpn-agent" % alpnAgentVersion.value % alpnAgentConfig)
-      }
-
-      val boot = if(alpnDownloadBootVersion.value.isDefined) {
-        Seq("org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootVersion.value.get % alpnBootConfig)
-      } else { Seq.empty }
-
-      agentAndApi ++ boot
-    },
-    mappings in Universal ++= {
-      alpnDownloadBoot.value.map { alpnDownloadBootVal =>
         Seq(
-          alpnAgent.value -> "alpn/jetty-alpn-agent.jar",
-          alpnDownloadBootVal -> s"alpn/alpn-boot-${alpnDownloadBootVersion.value.get}.jar"
+          "org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value,
+          "org.mortbay.jetty.alpn" % "jetty-alpn-agent" % alpnAgentVersion.value % alpnAgentConfig
         )
-      }.getOrElse(Seq(alpnAgent.value -> "alpn/jetty-alpn-agent.jar"))
+      }
     },
+    mappings in Universal += alpnAgent.value -> "alpn/jetty-alpn-agent.jar",
     bashScriptExtraDefines += """addJava "-javaagent:${app_home}/../alpn/jetty-alpn-agent.jar""""
   )
+
+  private val AlpnMappings = Seq(
+    new VersionMapping("8.1.8.v20160420", 1, 8, 0, 92),
+    new VersionMapping("8.1.7.v20160121", 1, 8, 0, 71),
+    new VersionMapping("8.1.6.v20151105", 1, 8, 0, 65),
+    new VersionMapping("8.1.5.v20150921", 1, 8, 0, 60),
+    new VersionMapping("8.1.4.v20150727", 1, 8, 0, 51),
+    new VersionMapping("8.1.3.v20150130", 1, 8, 0, 31),
+    new VersionMapping("8.1.2.v20141202", 1, 8, 0, 25),
+    new VersionMapping("8.1.0.v20141016", 1, 8, 0, 0),
+    new VersionMapping("7.1.3.v20150130", 1, 7, 0, 75),
+    new VersionMapping("7.1.2.v20141202", 1, 7, 0, 71),
+    new VersionMapping("7.1.0.v20141016", 1, 7, 0, 0)
+  )
+
+  private def findArtifactVersion(maps: Seq[VersionMapping]): String = maps.find(_.matches).get.artifactVersion
 
   private[this] val alpnAgentFilter: DependencyFilter =
     configurationFilter("alpn-agent") && artifactFilter(`type` = "jar")
 
-  private[this] val alpnBootFilter: DependencyFilter =
-    configurationFilter("alpn-boot") && artifactFilter(`type` = "jar")
-
   def findAlpnAgent(report: UpdateReport): File = report.matching(alpnAgentFilter).head
 
-  def findAlpnBoot(report: UpdateReport): Option[File] = report.matching(alpnBootFilter).headOption
 }
 
+case class VersionMapping(artifactVersion: String, major: Int, minor: Int, micro: Int, startPatch: Int) {
+  def matches = {
+    val javaVersion = JavaVersion()
+    (javaVersion.major == major) &&
+      (javaVersion.minor == minor) &&
+      (javaVersion.micro == micro) &&
+      (javaVersion.patch >= startPatch)
+  }
+}
