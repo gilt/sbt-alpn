@@ -13,41 +13,34 @@ object JettyAlpn extends AutoPlugin {
     val alpnDownloadBootAutoVersion = settingKey[String]("ALPN auto generated boot version")
     val alpnApiIncluded = settingKey[Boolean]("Include ALPN api as a dependency")
     val alpnApiVersion = settingKey[String]("ALPN api version")
-    val alpnAgentVersion = settingKey[String]("ALPN boot version")
-    val alpnAgent = taskKey[File]("ALPN agent jar location")
+    val alpnBoot = taskKey[File]("ALPN boot jar location")
   }
 
   import autoImport._
 
   override def requires = JavaAppPackaging
 
-  val alpnAgentConfig = config("alpn-agent").hide
   val alpnBootConfig = config("alpn-boot").hide
 
   override lazy val projectSettings = Seq(
-    ivyConfigurations ++= Seq(alpnAgentConfig, alpnBootConfig),
+    ivyConfigurations += alpnBootConfig,
     alpnApiIncluded := false,
     alpnDownloadBootVersion := None,
     alpnDownloadBootAutoVersion := alpnDownloadBootVersion.value.getOrElse(findArtifactVersion(AlpnMappings)),
     alpnApiVersion := "1.1.2.v20150522",
-    alpnAgentVersion := "2.0.2",
-    alpnAgent := findAlpnAgent(update.value),
+    alpnBoot := findAlpnBoot(update.value),
     libraryDependencies ++= {
       if(alpnApiIncluded.value) {
         Seq(
           "org.eclipse.jetty.alpn" % "alpn-api" % alpnApiVersion.value,
-          "org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value,
-          "org.mortbay.jetty.alpn" % "jetty-alpn-agent" % alpnAgentVersion.value % alpnAgentConfig
+          "org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value % alpnBootConfig
         )
       } else {
-        Seq(
-          "org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value,
-          "org.mortbay.jetty.alpn" % "jetty-alpn-agent" % alpnAgentVersion.value % alpnAgentConfig
-        )
+        Seq("org.mortbay.jetty.alpn" % "alpn-boot" % alpnDownloadBootAutoVersion.value % alpnBootConfig)
       }
     },
-    mappings in Universal += alpnAgent.value -> "alpn/jetty-alpn-agent.jar",
-    bashScriptExtraDefines += """addJava "-javaagent:${app_home}/../alpn/jetty-alpn-agent.jar""""
+    mappings in Universal += alpnBoot.value -> s"alpn/alpn-boot-${alpnDownloadBootAutoVersion.value}.jar",
+    bashScriptExtraDefines += s"""addJava "-Xbootclasspath/p:$${app_home}/../alpn/alpn-boot-${alpnDownloadBootAutoVersion.value}.jar""""
   )
 
   private val AlpnMappings = Seq(
@@ -66,10 +59,10 @@ object JettyAlpn extends AutoPlugin {
 
   private def findArtifactVersion(maps: Seq[VersionMapping]): String = maps.find(_.matches).get.artifactVersion
 
-  private[this] val alpnAgentFilter: DependencyFilter =
-    configurationFilter("alpn-agent") && artifactFilter(`type` = "jar")
+  private[this] val alpnBootFilter: DependencyFilter =
+    configurationFilter("alpn-boot") && artifactFilter(`type` = "jar")
 
-  def findAlpnAgent(report: UpdateReport): File = report.matching(alpnAgentFilter).head
+  def findAlpnBoot(report: UpdateReport): File = report.matching(alpnBootFilter).head
 
 }
 
